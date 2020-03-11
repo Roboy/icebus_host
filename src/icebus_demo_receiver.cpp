@@ -1,12 +1,10 @@
 #include "icebus_host/IcebusHost.hpp"
 
 int main(int argc, char *argv[]) {
-  IcebusHost icebus;
+  IcebusHost icebus("/dev/ttyUSB2");
   ros::Time::init();
-  ros::Rate rate(1);
   while(true){
-    icebus.GetStatus(128);
-    rate.sleep();
+    icebus.Listen(128);
   }
   return 0;
 }

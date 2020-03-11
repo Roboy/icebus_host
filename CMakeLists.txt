@@ -40,8 +40,11 @@ add_dependencies(IcebusHost roboy_middleware_msgs_msgs_generate_messages_cpp)
 target_link_libraries(IcebusHost ${catkin_LIBRARIES} )
 
 # icebus_demo
-add_executable( icebus_demo src/icebus_demo.cpp)
-target_link_libraries( icebus_demo IcebusHost)
+add_executable( icebus_host src/icebus_demo_host.cpp)
+target_link_libraries( icebus_host IcebusHost)
+
+add_executable( icebus_receiver src/icebus_demo_receiver.cpp)
+target_link_libraries( icebus_receiver IcebusHost)
 
 #==============================================================================
 # Installation
