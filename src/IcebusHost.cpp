@@ -30,7 +30,7 @@ IcebusHost::IcebusHost(string device){
   tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL); // Disable any special handling of received bytes
   tty.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
   tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
-  tty.c_cc[VTIME] = 1;    // Wait for up to 1s (10 deciseconds)
+  tty.c_cc[VTIME] = 0;    // Wait for up to 1s (10 deciseconds)
   tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
   cfsetispeed(&tty, B115200);
   cfsetospeed(&tty, B115200);
@@ -128,16 +128,16 @@ void IcebusHost::Listen(int motor){
   int n = read(serial_port, &read_buf, sizeof(read_buf));
   if(n>0){
     ROS_INFO("%d bytes received",n);
+    for(int i=0;i<n;i++){
+        printf("%x\t",read_buf[i]);
+    }
+    printf("\n");
     switch(n){
       case 7: {
         if((read_buf[0]<<24|read_buf[1]<<16|read_buf[2]<<8|read_buf[3])==0x1CE1CEBB){
           crc crc_received = gen_crc16(&read_buf[4],n-4-2);
           if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
             ROS_INFO("status request received for motor_id %d", read_buf[4]);
-            for(int i=0;i<n;i++){
-                printf("%x\t",read_buf[i]);
-            }
-            printf("\n");
             SendStatusResponse(motor);
           }else{
             ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[6]<<8|read_buf[5]),crc_received);
@@ -152,10 +152,6 @@ void IcebusHost::Listen(int motor){
           crc crc_received = gen_crc16(&read_buf[4],n-4-2);
           if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
             ROS_INFO("command received for motor_id %d", read_buf[4]);
-            for(int i=0;i<n;i++){
-                printf("%x\t",read_buf[i]);
-            }
-            printf("\n");
           }else{
             ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[6]<<8|read_buf[5]),crc_received);
           }
@@ -169,10 +165,6 @@ void IcebusHost::Listen(int motor){
           crc crc_received = gen_crc16(&read_buf[4],n-4-2);
           if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
             ROS_INFO("control_mode received for motor_id %d", read_buf[4]);
-            for(int i=0;i<n;i++){
-                printf("%x\t",read_buf[i]);
-            }
-            printf("\n");
           }else{
             ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[6]<<8|read_buf[5]),crc_received);
           }
@@ -180,10 +172,6 @@ void IcebusHost::Listen(int motor){
           crc crc_received = gen_crc16(&read_buf[4],n-4-2);
           if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
             ROS_INFO("status response received for motor_id %d", read_buf[4]);
-            for(int i=0;i<n;i++){
-                printf("%x\t",read_buf[i]);
-            }
-            printf("\n");
           }else{
             ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[6]<<8|read_buf[5]),crc_received);
           }
