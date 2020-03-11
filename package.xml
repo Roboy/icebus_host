@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="2">
+    <name>icebus_host</name>
+    <version>0.0.0</version>
+    <description>icebus host control</description>
+    <maintainer email="st@gi.ai">Simon Trendel</maintainer>
+    <license>BSD</license>
+
+    <buildtool_depend>catkin</buildtool_depend>
+    <depend>roscpp</depend>
+    <depend>rospy</depend>
+    <depend>rosbag</depend>
+    <depend>std_msgs</depend>
+    <depend>message_generation</depend>
+    <depend>message_runtime</depend>
+    <depend>common_utilities</depend>
+    <depend>controller_interface</depend>
+    <depend>roboy_middleware_msgs</depend>
+    <depend>roboy_simulation_msgs</depend>
+
+    <export>
+    </export>
+</package>
