@@ -1,44 +1,7 @@
-#include "icebus_host/IcebusHost.hpp"
+#include "IcebusProtocol.hpp"
 
-IcebusHost::IcebusHost(string device){
-  serial_port = open(device.c_str(), O_RDWR);
+IcebusHost::IcebusHost(){
 
-  // Check for errors
-  if (serial_port < 0) {
-      ROS_FATAL("Error %i from opening %s: %s\n", errno, device.c_str(), strerror(errno));
-  }
-
-  // Create new termios struc, we call it 'tty' for convention
-  memset(&tty, 0, sizeof tty);
-
-  // Read in existing settings, and handle any error
-  if(tcgetattr(serial_port, &tty) != 0) {
-      ROS_FATAL("Error %i from tcgetattr: %s\n", errno, strerror(errno));
-  }
-
-  tty.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
-  tty.c_cflag |= PARODD; // If set, then parity for input and output is odd; otherwise even parity is used.
-  tty.c_cflag &= ~CSTOPB; // Clear stop field, only one stop bit used in communication
-  tty.c_cflag |= CS8; // 8 bits per byte (most common)
-  tty.c_cflag &= ~CRTSCTS; // Disable RTS/CTS hardware flow control (most common)
-  tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
-  tty.c_lflag &= ~ICANON;
-  tty.c_lflag &= ~ECHO; // Disable echo
-  tty.c_lflag &= ~ECHOE; // Disable erasure
-  tty.c_lflag &= ~ECHONL; // Disable new-line echo
-  tty.c_lflag &= ~ISIG; // Disable interpretation of INTR, QUIT and SUSP
-  tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off s/w flow ctrl
-  tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL); // Disable any special handling of received bytes
-  tty.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
-  tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
-  tty.c_cc[VTIME] = 0;    // Wait for up to 1s (10 deciseconds)
-  tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
-  cfsetispeed(&tty, B115200);
-  cfsetospeed(&tty, B115200);
-  // Save tty settings, also checking for error
-  if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
-      ROS_FATAL("Error %i from tcsetattr: %s\n", errno, strerror(errno));
-  }
   crcInit();
 }
 
@@ -47,18 +10,12 @@ void IcebusHost::SendStatusRequest(int motor){
   req.values.header = 0xBBCEE11C;
   req.values.motor_id = motor;
   req.values.crc = gen_crc16(&req.data[4],7-4-2);
-  ROS_INFO("------------");
+  printf("status request------------>\t");
   for(int i=0;i<sizeof(req);i++){
       printf("%x\t",req.data[i]);
   }
   printf("\n");
-  write(serial_port, req.data, 7);
-  // int n = read(serial_port, &read_buf, sizeof(read_buf));
-  // ROS_INFO("read %d bytes",n);
-  // for(int i=0;i<n;i++){
-  //     printf("%x\t",read_buf[i]);
-  // }
-  // printf("\n");
+  Serial1.write(req.data, 7);
 }
 
 void IcebusHost::SendCommand(int motor){
@@ -67,12 +24,12 @@ void IcebusHost::SendCommand(int motor){
   msg.values.motor_id = motor;
   msg.values.setpoint = 10;
   msg.values.crc = gen_crc16(&msg.data[4],13-4-2);
-  ROS_INFO("------------");
+  printf("command------------>\t");
   for(int i=0;i<sizeof(msg);i++){
       printf("%x\t",msg.data[i]);
   }
   printf("\n");
-  write(serial_port, msg.data, 13);
+  Serial1.write(msg.data, 13);
 }
 
 void IcebusHost::SendControlMode(int motor){
@@ -89,12 +46,12 @@ void IcebusHost::SendControlMode(int motor){
   msg.values.setpoint = 1;
   msg.values.current_limit = 80;
   msg.values.crc = gen_crc16(&msg.data[4],28-4-2);
-  ROS_INFO("------------");
+  printf("control_mode------------>\t");
   for(int i=0;i<sizeof(msg);i++){
       printf("%x\t",msg.data[i]);
   }
   printf("\n");
-  write(serial_port, msg.data, 28);
+  Serial1.write(msg.data, 28);
 }
 
 void IcebusHost::SendStatusResponse(int motor){
@@ -111,12 +68,12 @@ void IcebusHost::SendStatusResponse(int motor){
   msg.values.setpoint = 1;
   msg.values.neopixel_color = 80;
   msg.values.crc = gen_crc16(&msg.data[4],28-4-2);
-  ROS_INFO("------------");
+  printf("status_response------------>\t");
   for(int i=0;i<sizeof(msg);i++){
       printf("%x\t",msg.data[i]);
   }
   printf("\n");
-  write(serial_port, msg.data, 28);
+  Serial1.write(msg.data, 28);
 }
 
 void IcebusHost::Listen(int motor){
@@ -126,45 +83,49 @@ void IcebusHost::Listen(int motor){
   // Read bytes. The behaviour of read() (e.g. does it block?,
   // how long does it block for?) depends on the configuration
   // settings above, specifically VMIN and VTIME
-  int n = read(serial_port, &read_buf, sizeof(read_buf));
-  if(n>0){
-    ROS_INFO("%d bytes received",n);
+  int n=Serial1.available();
+  if (n>=7) {
+    for(int i=0;i<n;i++){
+      read_buf[i] = Serial1.read();
+    }
+    printf("%d bytes received\n",n);
     for(int i=0;i<n;i++){
         printf("%x\t",read_buf[i]);
     }
     printf("\n");
+  }
+  if(n>0){
     uint32_t header = (read_buf[0]<<24|read_buf[1]<<16|read_buf[2]<<8|read_buf[3]);
+
     if(header==0x1CE1CEBB){
       crc crc_received = gen_crc16(&read_buf[4],n-4-2);
       if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("status request received for motor_id %d", read_buf[4]);
+        printf("status request received for motor_id %d\n", read_buf[4]);
         SendStatusResponse(motor);
       }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[7]<<8|read_buf[6]),crc_received);
+        printf("crc dont match, crc sent %x, crc calculated %x\n", (read_buf[6]<<8|read_buf[5]),crc_received);
       }
     }else if(header==0xD0D0D0D0){
       crc crc_received = gen_crc16(&read_buf[4],n-4-2);
       if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("command received for motor_id %d", read_buf[4]);
+        printf("command received for motor_id %d\n", read_buf[4]);
       }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[12]<<8|read_buf[11]),crc_received);
+        printf("crc dont match, crc sent %x, crc calculated %x\n", (read_buf[6]<<8|read_buf[5]),crc_received);
       }
     }else if(header==0xBAADAA55){
       crc crc_received = gen_crc16(&read_buf[4],n-4-2);
       if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("control_mode received for motor_id %d", read_buf[4]);
+        printf("control_mode received for motor_id %d\n", read_buf[4]);
       }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[27]<<8|read_buf[26]),crc_received);
+        printf("crc dont match, crc sent %x, crc calculated %x\n", (read_buf[6]<<8|read_buf[5]),crc_received);
       }
     }else if(header==0x1CEB00DA){
       crc crc_received = gen_crc16(&read_buf[4],n-4-2);
       if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("status response received for motor_id %d", read_buf[4]);
+        printf("status response received for motor_id %d\n", read_buf[4]);
       }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[27]<<8|read_buf[26]),crc_received);
+        printf("crc dont match, crc sent %x, crc calculated %x\n", (read_buf[6]<<8|read_buf[5]),crc_received);
       }
-    }else{
-      ROS_WARN("header %x does not match",header);
     }
   }
 }

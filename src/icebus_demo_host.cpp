@@ -3,7 +3,7 @@
 int main(int argc, char *argv[]) {
   IcebusHost icebus("/dev/ttyUSB0");
   ros::Time::init();
-  ros::Rate rate(1);
+  ros::Rate rate(0.3);
 
   while(true){
     icebus.SendStatusRequest(128);

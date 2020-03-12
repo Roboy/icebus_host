@@ -24,7 +24,9 @@
     OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     author: Simon Trendel ( st@gi.ai ), 2020
     description: class for controlling icebus
+    based mainly on: https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
 */
+
 
 #pragma once
 
