@@ -121,7 +121,10 @@ union HandCommand{
   struct __attribute__((packed)) {
         uint32_t header;
         uint8_t id;
-        uint32_t setpoint;
+        uint8_t setpoint0;
+        uint8_t setpoint1;
+        uint8_t setpoint2;
+        uint8_t setpoint3;
         uint32_t neopxl_color:24;
         uint16_t crc;
     }values = {.header = 0x0DF005B1};

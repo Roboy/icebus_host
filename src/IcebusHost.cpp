@@ -33,8 +33,8 @@ IcebusHost::IcebusHost(string device){
   tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
   tty.c_cc[VTIME] = 0;    // Wait for up to 1s (10 deciseconds)
   tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
-  cfsetispeed(&tty, B115200);
-  cfsetospeed(&tty, B115200);
+  cfsetispeed(&tty, B38400);
+  cfsetospeed(&tty, B38400);
   // Save tty settings, also checking for error
   if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
       ROS_FATAL("Error %i from tcsetattr: %s\n", errno, strerror(errno));
@@ -109,7 +109,10 @@ void IcebusHost::SendHandStatusRequest(int id){
 void IcebusHost::SendHandCommand(int id, vector<uint8_t> pos, uint32_t neopxl_color){
   HandCommand msg;
   msg.values.id = id;
-  msg.values.setpoint = (pos[0]<<24|pos[1]<<16|pos[2]<<8|pos[3]);
+  msg.values.setpoint0 = pos[0];
+  msg.values.setpoint1 = pos[1];
+  msg.values.setpoint2 = pos[2];
+  msg.values.setpoint3 = pos[3];
   msg.values.neopxl_color = neopxl_color;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
   printf("command------------>\t");
@@ -223,6 +226,7 @@ void IcebusHost::Listen(int id){
         }
         case 0x0B00B135: {
           ROS_INFO("hand_status_response received for id %d", read_buf[4]);
+          usleep(100000);
           vector<uint8_t> setpoints = {0,1,2,3};
           uint32_t neopxl_color = 80;
           SendHandCommand(id,setpoints,neopxl_color);
