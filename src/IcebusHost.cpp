@@ -44,8 +44,7 @@ IcebusHost::IcebusHost(string device){
 
 void IcebusHost::SendStatusRequest(int motor){
   StatusRequest req;
-  req.values.header = 0xBBCEE11C;
-  req.values.motor_id = motor;
+  req.values.id = motor;
   req.values.crc = gen_crc16(&req.data[4],7-4-2);
   ROS_INFO("------------");
   for(int i=0;i<sizeof(req);i++){
@@ -63,8 +62,7 @@ void IcebusHost::SendStatusRequest(int motor){
 
 void IcebusHost::SendCommand(int motor){
   Command msg;
-  msg.values.header = 0xD0D0D0D0;
-  msg.values.motor_id = motor;
+  msg.values.id = motor;
   msg.values.setpoint = 10;
   msg.values.crc = gen_crc16(&msg.data[4],13-4-2);
   ROS_INFO("------------");
@@ -77,8 +75,7 @@ void IcebusHost::SendCommand(int motor){
 
 void IcebusHost::SendControlMode(int motor){
   ControlMode msg;
-  msg.values.header = 0x55AAADBA;
-  msg.values.motor_id = motor;
+  msg.values.id = motor;
   msg.values.control_mode = 1;
   msg.values.Kp = 0;
   msg.values.Ki = 1;
@@ -97,10 +94,65 @@ void IcebusHost::SendControlMode(int motor){
   write(serial_port, msg.data, 28);
 }
 
+void IcebusHost::SendHandStatusRequest(int motor){
+  HandStatusRequest msg;
+  msg.values.id = motor;
+  msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
+  printf("status request------------>\t");
+  for(uint i=0;i<sizeof(msg);i++){
+      printf("%x\t",msg.data[i]);
+  }
+  printf("\n");
+  write(serial_port, msg.data, sizeof(msg));
+}
+
+void IcebusHost::SendHandCommand(int motor){
+  HandCommand msg;
+  msg.values.id = motor;
+  msg.values.setpoint = 10;
+  msg.values.neopxl_color = 10;
+  msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
+  printf("command------------>\t");
+  for(uint i=0;i<sizeof(msg);i++){
+      printf("%x\t",msg.data[i]);
+  }
+  printf("\n");
+  write(serial_port, msg.data, sizeof(msg));
+}
+
+void IcebusHost::SendHandControlMode(int motor){
+  HandControlMode msg;
+  msg.values.id = motor;
+  msg.values.control_mode = 1;
+  msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
+  printf("control_mode------------>\t");
+  for(uint i=0;i<sizeof(msg);i++){
+      printf("%x\t",msg.data[i]);
+  }
+  printf("\n");
+  write(serial_port, msg.data, sizeof(msg));
+}
+
+void IcebusHost::SendHandStatusResponse(int motor){
+  HandStatusResponse msg;
+  msg.values.id = motor;
+  msg.values.control_mode = 1;
+  msg.values.position = 0;
+  msg.values.current = 1;
+  msg.values.setpoint = 2;
+  msg.values.neopixel_color = 80;
+  msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
+  printf("status_response------------>\t");
+  for(uint i=0;i<sizeof(msg);i++){
+      printf("%x\t",msg.data[i]);
+  }
+  printf("\n");
+  write(serial_port, msg.data, sizeof(msg));
+}
+
 void IcebusHost::SendStatusResponse(int motor){
   StatusResponse msg;
-  msg.values.header = 0xDA00EB1C;
-  msg.values.motor_id = motor;
+  msg.values.id = motor;
   msg.values.control_mode = 1;
   msg.values.encoder_position0 = 0;
   msg.values.encoder_position1 = 1;
@@ -119,7 +171,7 @@ void IcebusHost::SendStatusResponse(int motor){
   write(serial_port, msg.data, 28);
 }
 
-void IcebusHost::Listen(int motor){
+void IcebusHost::Listen(int id){
   uint8_t read_buf [256];
   memset(&read_buf, '\0', sizeof(read_buf));
 
@@ -134,37 +186,46 @@ void IcebusHost::Listen(int motor){
     }
     printf("\n");
     uint32_t header = (read_buf[0]<<24|read_buf[1]<<16|read_buf[2]<<8|read_buf[3]);
-    if(header==0x1CE1CEBB){
-      crc crc_received = gen_crc16(&read_buf[4],n-4-2);
-      if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("status request received for motor_id %d", read_buf[4]);
-        SendStatusResponse(motor);
-      }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[7]<<8|read_buf[6]),crc_received);
-      }
-    }else if(header==0xD0D0D0D0){
-      crc crc_received = gen_crc16(&read_buf[4],n-4-2);
-      if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("command received for motor_id %d", read_buf[4]);
-      }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[12]<<8|read_buf[11]),crc_received);
-      }
-    }else if(header==0xBAADAA55){
-      crc crc_received = gen_crc16(&read_buf[4],n-4-2);
-      if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("control_mode received for motor_id %d", read_buf[4]);
-      }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[27]<<8|read_buf[26]),crc_received);
-      }
-    }else if(header==0x1CEB00DA){
-      crc crc_received = gen_crc16(&read_buf[4],n-4-2);
-      if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
-        ROS_INFO("status response received for motor_id %d", read_buf[4]);
-      }else{
-        ROS_WARN("crc dont match, crc sent %x, crc calculated %x", (read_buf[27]<<8|read_buf[26]),crc_received);
+    crc crc_received = gen_crc16(&read_buf[4],n-4-2);
+    if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
+      switch(header){
+        case 0x1CE1CEBB: {
+          ROS_INFO("status_request received for id %d", read_buf[4]);
+          SendStatusResponse(id);
+          break;
+        }
+        case 0xD0D0D0D0: {
+          ROS_INFO("command received for id %d", read_buf[4]);
+          break;
+        }
+        case 0xBAADAA55: {
+          ROS_INFO("control_mode received for id %d", read_buf[4]);
+          break;
+        }
+        case 0x1CEB00DA: {
+          ROS_INFO("status_response received for id %d", read_buf[4]);
+          break;
+        }
+        case 0xABADBABE: {
+          ROS_INFO("hand_status_request received for id %d", read_buf[4]);
+          break;
+        }
+        case 0xB105F00D: {
+          ROS_INFO("hand_command received for id %d", read_buf[4]);
+          break;
+        }
+        case 0xB16B00B5: {
+          ROS_INFO("hand_control_mode received for id %d", read_buf[4]);
+          break;
+        }
+        case 0x0B00B135: {
+          ROS_INFO("hand_status_response received for id %d", read_buf[4]);
+          break;
+        }
+        default: ROS_WARN("header %x does not match",header);
       }
     }else{
-      ROS_WARN("header %x does not match",header);
+      ROS_WARN("crc doesn't match, crc received %x, crc calculated %x, header %x", (read_buf[7]<<8|read_buf[6]),crc_received,header);
     }
   }
 }

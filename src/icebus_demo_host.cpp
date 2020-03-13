@@ -6,7 +6,7 @@ int main(int argc, char *argv[]) {
   ros::Rate rate(0.3);
 
   while(true){
-    icebus.SendStatusRequest(128);
+    icebus.SendHandStatusRequest(128);
     icebus.Listen(128);
     // icebus.SendCommand(128);
     // usleep(10000);

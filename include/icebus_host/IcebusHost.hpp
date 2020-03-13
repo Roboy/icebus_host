@@ -54,18 +54,18 @@ typedef uint16_t crc;
 #define POLYNOMIAL 0x8005
 
 union StatusRequest{
-  struct{
+  struct __attribute__((packed)) {
         uint32_t header;
-        uint8_t motor_id;
+        uint8_t id;
         uint16_t crc;
-    }values;
+    }values = {.header = 0xBBCEE11C};
     uint8_t data[7];
 };
 
 union StatusResponse{
-  struct{
+  struct __attribute__((packed)) {
         uint32_t header;
-        uint8_t motor_id;
+        uint8_t id;
         uint8_t control_mode;
         int32_t encoder_position0:24;
         int32_t encoder_position1:24;
@@ -75,25 +75,25 @@ union StatusResponse{
         int16_t current;
         int32_t neopixel_color:24;
         uint16_t crc;
-    }values;
+    }values = {.header = 0xDA00EB1C};
     uint8_t data[28];
 };
 
 union Command{
-  struct{
+  struct __attribute__((packed)) {
         uint32_t header;
-        uint8_t motor_id;
+        uint8_t id;
         int32_t setpoint:24;
         int32_t neopxl_color:24;
         uint16_t crc;
-    }values;
+    }values = {.header = 0xD0D0D0D0};
     uint8_t data[13];
 };
 
 union ControlMode{
-  struct{
+  struct __attribute__((packed)) {
         uint32_t header;
-        uint8_t motor_id;
+        uint8_t id;
         uint8_t control_mode;
         int16_t Kp;
         int16_t Ki;
@@ -104,8 +104,52 @@ union ControlMode{
         int32_t setpoint:24;
         int16_t current_limit;
         uint16_t crc;
-    }values;
+    }values = {.header = 0x55AAADBA};
     uint8_t data[28];
+};
+
+union HandStatusRequest{
+  struct __attribute__((packed)) {
+        uint32_t header;
+        uint8_t id;
+        uint16_t crc;
+    }values = {.header = 0xBEBAADAB};
+    uint8_t data[7];
+};
+
+union HandCommand{
+  struct __attribute__((packed)) {
+        uint32_t header;
+        uint8_t id;
+        uint32_t setpoint;
+        uint32_t neopxl_color:24;
+        uint16_t crc;
+    }values = {.header = 0x0DF005B1};
+    uint8_t data[14];
+};
+
+union HandControlMode{
+  struct __attribute__((packed)) {
+        uint32_t header;
+        uint8_t id;
+        uint32_t control_mode;
+        uint16_t crc;
+    }values = {.header= 0xB5006BB1 };
+    uint8_t data[11];
+};
+
+union HandStatusResponse{
+  struct __attribute__((packed)) {
+        uint32_t header;
+        uint8_t id;
+        uint32_t control_mode;
+        uint32_t setpoint;
+        uint32_t position;
+        uint32_t current;
+        int32_t neopixel_color:24;
+        uint16_t crc;
+    }values = {.header = 0x35B1000B };
+    uint8_t data[22];
 };
 
 class IcebusHost{
@@ -114,11 +158,15 @@ public:
   ~IcebusHost(){
     close(serial_port);
   }
-  void SendStatusRequest(int motor);
-  void SendStatusResponse(int motor);
-  void SendCommand(int motor);
-  void SendControlMode(int motor);
-  void Listen(int motor);
+  void SendStatusRequest(int id);
+  void SendStatusResponse(int id);
+  void SendCommand(int id);
+  void SendControlMode(int id);
+  void SendHandCommand(int id);
+  void SendHandControlMode(int id);
+  void SendHandStatusRequest(int id);
+  void SendHandStatusResponse(int id);
+  void Listen(int id);
 private:
   crc  crcTable[256];
   void crcInit();
