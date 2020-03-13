@@ -42,9 +42,9 @@ IcebusHost::IcebusHost(string device){
   crcInit();
 }
 
-void IcebusHost::SendStatusRequest(int motor){
+void IcebusHost::SendStatusRequest(int id){
   StatusRequest req;
-  req.values.id = motor;
+  req.values.id = id;
   req.values.crc = gen_crc16(&req.data[4],7-4-2);
   ROS_INFO("------------");
   for(int i=0;i<sizeof(req);i++){
@@ -60,9 +60,9 @@ void IcebusHost::SendStatusRequest(int motor){
   // printf("\n");
 }
 
-void IcebusHost::SendCommand(int motor){
+void IcebusHost::SendCommand(int id){
   Command msg;
-  msg.values.id = motor;
+  msg.values.id = id;
   msg.values.setpoint = 10;
   msg.values.crc = gen_crc16(&msg.data[4],13-4-2);
   ROS_INFO("------------");
@@ -73,9 +73,9 @@ void IcebusHost::SendCommand(int motor){
   write(serial_port, msg.data, 13);
 }
 
-void IcebusHost::SendControlMode(int motor){
+void IcebusHost::SendControlMode(int id){
   ControlMode msg;
-  msg.values.id = motor;
+  msg.values.id = id;
   msg.values.control_mode = 1;
   msg.values.Kp = 0;
   msg.values.Ki = 1;
@@ -94,9 +94,9 @@ void IcebusHost::SendControlMode(int motor){
   write(serial_port, msg.data, 28);
 }
 
-void IcebusHost::SendHandStatusRequest(int motor){
+void IcebusHost::SendHandStatusRequest(int id){
   HandStatusRequest msg;
-  msg.values.id = motor;
+  msg.values.id = id;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
   printf("status request------------>\t");
   for(uint i=0;i<sizeof(msg);i++){
@@ -106,11 +106,11 @@ void IcebusHost::SendHandStatusRequest(int motor){
   write(serial_port, msg.data, sizeof(msg));
 }
 
-void IcebusHost::SendHandCommand(int motor){
+void IcebusHost::SendHandCommand(int id, vector<uint8_t> pos, uint32_t neopxl_color){
   HandCommand msg;
-  msg.values.id = motor;
-  msg.values.setpoint = 10;
-  msg.values.neopxl_color = 10;
+  msg.values.id = id;
+  msg.values.setpoint = (pos[0]<<24|pos[1]<<16|pos[2]<<8|pos[3]);
+  msg.values.neopxl_color = neopxl_color;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
   printf("command------------>\t");
   for(uint i=0;i<sizeof(msg);i++){
@@ -120,9 +120,9 @@ void IcebusHost::SendHandCommand(int motor){
   write(serial_port, msg.data, sizeof(msg));
 }
 
-void IcebusHost::SendHandControlMode(int motor){
+void IcebusHost::SendHandControlMode(int id){
   HandControlMode msg;
-  msg.values.id = motor;
+  msg.values.id = id;
   msg.values.control_mode = 1;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
   printf("control_mode------------>\t");
@@ -133,12 +133,15 @@ void IcebusHost::SendHandControlMode(int motor){
   write(serial_port, msg.data, sizeof(msg));
 }
 
-void IcebusHost::SendHandStatusResponse(int motor){
+void IcebusHost::SendHandStatusResponse(int id){
   HandStatusResponse msg;
-  msg.values.id = motor;
+  msg.values.id = id;
   msg.values.control_mode = 1;
   msg.values.position = 0;
-  msg.values.current = 1;
+  msg.values.current0 = 1;
+  msg.values.current1 = 1;
+  msg.values.current2 = 1;
+  msg.values.current3 = 1;
   msg.values.setpoint = 2;
   msg.values.neopixel_color = 80;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
@@ -150,9 +153,9 @@ void IcebusHost::SendHandStatusResponse(int motor){
   write(serial_port, msg.data, sizeof(msg));
 }
 
-void IcebusHost::SendStatusResponse(int motor){
+void IcebusHost::SendStatusResponse(int id){
   StatusResponse msg;
-  msg.values.id = motor;
+  msg.values.id = id;
   msg.values.control_mode = 1;
   msg.values.encoder_position0 = 0;
   msg.values.encoder_position1 = 1;
@@ -220,6 +223,9 @@ void IcebusHost::Listen(int id){
         }
         case 0x0B00B135: {
           ROS_INFO("hand_status_response received for id %d", read_buf[4]);
+          vector<uint8_t> setpoints = {0,1,2,3};
+          uint32_t neopxl_color = 80;
+          SendHandCommand(id,setpoints,neopxl_color);
           break;
         }
         default: ROS_WARN("header %x does not match",header);

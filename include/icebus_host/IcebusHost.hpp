@@ -145,11 +145,14 @@ union HandStatusResponse{
         uint32_t control_mode;
         uint32_t setpoint;
         uint32_t position;
-        uint32_t current;
+        uint16_t current0;
+        uint16_t current1;
+        uint16_t current2;
+        uint16_t current3;
         int32_t neopixel_color:24;
         uint16_t crc;
     }values = {.header = 0x35B1000B };
-    uint8_t data[22];
+    uint8_t data[26];
 };
 
 class IcebusHost{
@@ -162,7 +165,7 @@ public:
   void SendStatusResponse(int id);
   void SendCommand(int id);
   void SendControlMode(int id);
-  void SendHandCommand(int id);
+  void SendHandCommand(int id, vector<uint8_t> pos, uint32_t neopxl_color);
   void SendHandControlMode(int id);
   void SendHandStatusRequest(int id);
   void SendHandStatusResponse(int id);
