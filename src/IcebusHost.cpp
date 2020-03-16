@@ -31,10 +31,10 @@ IcebusHost::IcebusHost(string device){
   tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL); // Disable any special handling of received bytes
   tty.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
   tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
-  tty.c_cc[VTIME] = 0;    // Wait for up to 1s (10 deciseconds)
+  tty.c_cc[VTIME] = 4;    // Wait for up to 1s (10 deciseconds)
   tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
-  cfsetispeed(&tty, B9600);
-  cfsetospeed(&tty, B9600);
+  cfsetispeed(&tty, B19200);
+  cfsetospeed(&tty, B19200);
   // Save tty settings, also checking for error
   if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
       ROS_FATAL("Error %i from tcsetattr: %s\n", errno, strerror(errno));
@@ -106,11 +106,13 @@ void IcebusHost::SendHandStatusRequest(int id){
   write(serial_port, msg.data, sizeof(msg));
 }
 
-void IcebusHost::SendHandCommand(int id, uint16_t pos){
+void IcebusHost::SendHandCommand(int id, vector<uint16_t> pos){
   HandCommand msg;
   msg.values.id = id;
-  msg.values.motor = 0;
-  msg.values.setpoint = pos;
+  msg.values.setpoint0 = pos[0];
+  msg.values.setpoint1 = pos[1];
+  msg.values.setpoint2 = pos[2];
+  msg.values.setpoint3 = pos[3];
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
   // printf("command------------>\t");
   // for(uint i=0;i<sizeof(msg);i++){
@@ -182,7 +184,7 @@ void IcebusHost::Listen(int id){
   // how long does it block for?) depends on the configuration
   // settings above, specifically VMIN and VTIME
   int n = read(serial_port, &read_buf, sizeof(read_buf));
-  if(n>0){
+  if(n>=7){
     // ROS_INFO("%d bytes received",n);
     // for(int i=0;i<n;i++){
     //     printf("%x\t",read_buf[i]);
