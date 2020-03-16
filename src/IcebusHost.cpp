@@ -33,8 +33,8 @@ IcebusHost::IcebusHost(string device){
   tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
   tty.c_cc[VTIME] = 0;    // Wait for up to 1s (10 deciseconds)
   tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
-  cfsetispeed(&tty, B38400);
-  cfsetospeed(&tty, B38400);
+  cfsetispeed(&tty, B9600);
+  cfsetospeed(&tty, B9600);
   // Save tty settings, also checking for error
   if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
       ROS_FATAL("Error %i from tcsetattr: %s\n", errno, strerror(errno));
@@ -98,28 +98,25 @@ void IcebusHost::SendHandStatusRequest(int id){
   HandStatusRequest msg;
   msg.values.id = id;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
-  printf("status request------------>\t");
-  for(uint i=0;i<sizeof(msg);i++){
-      printf("%x\t",msg.data[i]);
-  }
-  printf("\n");
+  // printf("status request------------>\t");
+  // for(uint i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, msg.data, sizeof(msg));
 }
 
-void IcebusHost::SendHandCommand(int id, vector<uint8_t> pos, uint32_t neopxl_color){
+void IcebusHost::SendHandCommand(int id, uint16_t pos){
   HandCommand msg;
   msg.values.id = id;
-  msg.values.setpoint0 = pos[0];
-  msg.values.setpoint1 = pos[1];
-  msg.values.setpoint2 = pos[2];
-  msg.values.setpoint3 = pos[3];
-  msg.values.neopxl_color = neopxl_color;
+  msg.values.motor = 0;
+  msg.values.setpoint = pos;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
-  printf("command------------>\t");
-  for(uint i=0;i<sizeof(msg);i++){
-      printf("%x\t",msg.data[i]);
-  }
-  printf("\n");
+  // printf("command------------>\t");
+  // for(uint i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, msg.data, sizeof(msg));
 }
 
@@ -128,11 +125,11 @@ void IcebusHost::SendHandControlMode(int id){
   msg.values.id = id;
   msg.values.control_mode = 1;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
-  printf("control_mode------------>\t");
-  for(uint i=0;i<sizeof(msg);i++){
-      printf("%x\t",msg.data[i]);
-  }
-  printf("\n");
+  // printf("control_mode------------>\t");
+  // for(uint i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, msg.data, sizeof(msg));
 }
 
@@ -140,19 +137,19 @@ void IcebusHost::SendHandStatusResponse(int id){
   HandStatusResponse msg;
   msg.values.id = id;
   msg.values.control_mode = 1;
-  msg.values.position = 0;
+  msg.values.position0 = 0;
   msg.values.current0 = 1;
   msg.values.current1 = 1;
   msg.values.current2 = 1;
   msg.values.current3 = 1;
-  msg.values.setpoint = 2;
+  msg.values.setpoint0 = 2;
   msg.values.neopixel_color = 80;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
-  printf("status_response------------>\t");
-  for(uint i=0;i<sizeof(msg);i++){
-      printf("%x\t",msg.data[i]);
-  }
-  printf("\n");
+  // printf("status_response------------>\t");
+  // for(uint i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, msg.data, sizeof(msg));
 }
 
@@ -186,11 +183,11 @@ void IcebusHost::Listen(int id){
   // settings above, specifically VMIN and VTIME
   int n = read(serial_port, &read_buf, sizeof(read_buf));
   if(n>0){
-    ROS_INFO("%d bytes received",n);
-    for(int i=0;i<n;i++){
-        printf("%x\t",read_buf[i]);
-    }
-    printf("\n");
+    // ROS_INFO("%d bytes received",n);
+    // for(int i=0;i<n;i++){
+    //     printf("%x\t",read_buf[i]);
+    // }
+    // printf("\n");
     uint32_t header = (read_buf[0]<<24|read_buf[1]<<16|read_buf[2]<<8|read_buf[3]);
     crc crc_received = gen_crc16(&read_buf[4],n-4-2);
     if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
@@ -226,10 +223,10 @@ void IcebusHost::Listen(int id){
         }
         case 0x0B00B135: {
           ROS_INFO("hand_status_response received for id %d", read_buf[4]);
-          usleep(100000);
-          vector<uint8_t> setpoints = {0,1,2,3};
-          uint32_t neopxl_color = 80;
-          SendHandCommand(id,setpoints,neopxl_color);
+          HandStatusResponse msg;
+          memcpy(msg.data,read_buf,sizeof(msg));
+          ROS_WARN("position: %d %d %d %d", msg.values.position0, msg.values.position1, msg.values.position2, msg.values.position3);
+          ROS_WARN("current: %d %d %d %d", msg.values.current0, msg.values.current1, msg.values.current2, msg.values.current3);
           break;
         }
         default: ROS_WARN("header %x does not match",header);

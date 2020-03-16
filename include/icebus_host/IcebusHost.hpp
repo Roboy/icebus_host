@@ -121,14 +121,11 @@ union HandCommand{
   struct __attribute__((packed)) {
         uint32_t header;
         uint8_t id;
-        uint8_t setpoint0;
-        uint8_t setpoint1;
-        uint8_t setpoint2;
-        uint8_t setpoint3;
-        uint32_t neopxl_color:24;
+        uint8_t motor;
+        uint16_t setpoint;
         uint16_t crc;
     }values = {.header = 0x0DF005B1};
-    uint8_t data[14];
+    uint8_t data[10];
 };
 
 union HandControlMode{
@@ -146,8 +143,14 @@ union HandStatusResponse{
         uint32_t header;
         uint8_t id;
         uint32_t control_mode;
-        uint32_t setpoint;
-        uint32_t position;
+        uint8_t setpoint0;
+        uint8_t setpoint1;
+        uint8_t setpoint2;
+        uint8_t setpoint3;
+        uint8_t position0;
+        uint8_t position1;
+        uint8_t position2;
+        uint8_t position3;
         uint16_t current0;
         uint16_t current1;
         uint16_t current2;
@@ -168,7 +171,7 @@ public:
   void SendStatusResponse(int id);
   void SendCommand(int id);
   void SendControlMode(int id);
-  void SendHandCommand(int id, vector<uint8_t> pos, uint32_t neopxl_color);
+  void SendHandCommand(int id, uint16_t pos);
   void SendHandControlMode(int id);
   void SendHandStatusRequest(int id);
   void SendHandStatusResponse(int id);
