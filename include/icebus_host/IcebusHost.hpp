@@ -24,13 +24,23 @@
     OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     author: Simon Trendel ( st@gi.ai ), 2020
     description: class for controlling icebus
-    based mainly on: https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
+    uart termios usage based mainly on: https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
 */
 
 
 #pragma once
 
 #include <ros/ros.h>
+#include <thread>
+#include <std_srvs/SetBool.h>
+#include <common_utilities/CommonDefinitions.h>
+#include <common_utilities/MotorConfig.hpp>
+#include <roboy_middleware_msgs/ControlMode.h>
+#include <roboy_middleware_msgs/MotorInfo.h>
+#include <roboy_middleware_msgs/MotorCommand.h>
+#include <roboy_middleware_msgs/MotorConfigService.h>
+#include <roboy_middleware_msgs/MotorState.h>
+
 // C library headers
 #include <stdio.h>
 #include <string.h>
@@ -163,9 +173,44 @@ union HandStatusResponse{
     uint8_t data[35];
 };
 
+union M3Command{
+    struct __attribute__((packed)) {
+          uint32_t header;
+          uint8_t id;
+          int32_t setpoint;
+          uint16_t crc;
+      }values = {.header = 0xBEBAFECA };
+      uint8_t data[11];
+  };
+
+  union M3ControlMode{
+    struct __attribute__((packed)) {
+          uint32_t header;
+          uint8_t id;
+          uint8_t control_mode;
+          uint16_t crc;
+      }values = {.header = 0x0DD0FECA };
+      uint8_t data[8];
+  };
+
+  union M3StatusResponse{
+    struct __attribute__((packed)) {
+          uint32_t header;
+          uint8_t id;
+          uint8_t control_mode;
+          int32_t setpoint;
+          int32_t pos;
+          int32_t vel;
+          int32_t dis;
+          int32_t pwm;
+          uint16_t crc;
+      }values = {.header = 0x00D0BADA };
+      uint8_t data[28];
+  };
+
 class IcebusHost{
 public:
-  IcebusHost(string device = "/dev/ttyUSB0");
+  IcebusHost(string device = "/dev/ttyUSB0", string motor_config_file_path = "roboy3.yaml");
   ~IcebusHost(){
     close(serial_port);
   }
@@ -177,8 +222,63 @@ public:
   void SendHandControlMode(int id);
   void SendHandStatusRequest(int id);
   void SendHandStatusResponse(int id);
+  void SendM3Command(int id, int32_t setpoint);
+  void SendM3ControlMode(int id, uint8_t control_mode);
   void Listen(int id);
+  /**
+   * Publishes information about motors
+   */
+  void MotorInfoPublisher();
+
+  /**
+   * Publishes state of motors
+   */
+  void MotorStatePublisher();
+  /**
+   * Service for changing motor PID parameters
+   * @param req PID parameters
+   * @param res success
+   * @return success
+   */
+  bool MotorConfigService(roboy_middleware_msgs::MotorConfigService::Request &req,
+                          roboy_middleware_msgs::MotorConfigService::Response &res);
+  /**
+   * Callback for motor command
+   * @param msg motor command
+   */
+  void MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPtr &msg);
+  /**
+   * Emergency stop service, zeros all PID gains, causing all motors to stop, PID parameters and control mode are restored on release
+   * @param req
+   * @param res
+   * @return
+   */
+  bool EmergencyStopService(std_srvs::SetBool::Request &req,
+                            std_srvs::SetBool::Response &res);
+  /**
+   * Service for changing the control mode of motors, perviously set PID parameters are restored
+   * @param req control mode
+   * @param res
+   * @return success
+   */
+  bool ControlModeService(roboy_middleware_msgs::ControlMode::Request &req,
+                          roboy_middleware_msgs::ControlMode::Response &res);
+
+  MotorConfigPtr motor_config;
 private:
+  ros::NodeHandlePtr nh;
+  boost::shared_ptr<ros::AsyncSpinner> spinner;
+  ros::Subscriber motorCommand_sub;
+  ros::Publisher motorState, motorInfo;
+  bool keep_publishing = true, emergency_stop = false;
+  ros::ServiceServer motorConfig_srv, controlMode_srv, emergencyStop_srv;
+  boost::shared_ptr<std::thread> motorInfoThread, motorStateThread;
+  map<int, float> setpoint, encoder0_pos, encoder1_pos, displacement, current;
+  map<int, float> Kp, Ki, Kd, deadband, IntegralLimit, PWMLimit, current_limit, pwm;
+  map<int, float> communication_quality;
+  map<int, map<int, control_Parameters_t>> control_params_backup;
+  map<int, int> control_mode_backup,control_mode;
+
   crc  crcTable[256];
   void crcInit();
   crc gen_crc16(const uint8_t *data, uint16_t size);

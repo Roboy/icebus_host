@@ -1,6 +1,6 @@
 #include "icebus_host/IcebusHost.hpp"
 
-IcebusHost::IcebusHost(string device){
+IcebusHost::IcebusHost(string device, string motor_config_file_path){
   serial_port = open(device.c_str(), O_RDWR);
 
   // Check for errors
@@ -31,26 +31,56 @@ IcebusHost::IcebusHost(string device){
   tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL); // Disable any special handling of received bytes
   tty.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
   tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
-  tty.c_cc[VTIME] = 4;    // Wait for up to 1s (10 deciseconds)
+  tty.c_cc[VTIME] = 1;    // Wait for up to 1s (10 deciseconds)
   tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
-  cfsetispeed(&tty, B19200);
-  cfsetospeed(&tty, B19200);
+  cfsetispeed(&tty, B460800);
+  cfsetospeed(&tty, B460800);
   // Save tty settings, also checking for error
   if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
       ROS_FATAL("Error %i from tcsetattr: %s\n", errno, strerror(errno));
   }
   crcInit();
+
+  if (!ros::isInitialized()) {
+      int argc = 0;
+      char **argv = NULL;
+      ros::init(argc, argv, "icebus_host", ros::init_options::NoSigintHandler);
+  }
+
+  nh = ros::NodeHandlePtr(new ros::NodeHandle);
+  motor_config = MotorConfigPtr(new MotorConfig);
+  motor_config->readConfig(motor_config_file_path);
+
+  motorState = nh->advertise<roboy_middleware_msgs::MotorState>("/roboy/middleware/MotorState", 1);
+  motorInfo = nh->advertise<roboy_middleware_msgs::MotorInfo>("/roboy/middleware/MotorInfo", 1);
+  motorConfig_srv = nh->advertiseService("/roboy/middleware/MotorConfig",
+                                         &IcebusHost::MotorConfigService, this);
+  controlMode_srv = nh->advertiseService("/roboy/middleware/ControlMode",
+                                         &IcebusHost::ControlModeService, this);
+  emergencyStop_srv = nh->advertiseService("/roboy/middleware/EmergencyStop",
+                                           &IcebusHost::EmergencyStopService,
+                                           this);
+   motorCommand_sub = nh->subscribe("/roboy/middleware/MotorCommand", 1, &IcebusHost::MotorCommand, this);
+
+   motorStateThread = boost::shared_ptr<std::thread>(new std::thread(&IcebusHost::MotorStatePublisher, this));
+    motorStateThread->detach();
+
+    motorInfoThread = boost::shared_ptr<std::thread>(new std::thread(&IcebusHost::MotorInfoPublisher, this));
+    motorInfoThread->detach();
+
+   spinner = boost::shared_ptr<ros::AsyncSpinner>(new ros::AsyncSpinner(0));
+   spinner->start();
 }
 
 void IcebusHost::SendStatusRequest(int id){
   StatusRequest req;
   req.values.id = id;
   req.values.crc = gen_crc16(&req.data[4],7-4-2);
-  ROS_INFO("------------");
-  for(int i=0;i<sizeof(req);i++){
-      printf("%x\t",req.data[i]);
-  }
-  printf("\n");
+  // ROS_INFO("------------");
+  // for(int i=0;i<sizeof(req);i++){
+  //     printf("%x\t",req.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, req.data, 7);
   // int n = read(serial_port, &read_buf, sizeof(read_buf));
   // ROS_INFO("read %d bytes",n);
@@ -65,11 +95,11 @@ void IcebusHost::SendCommand(int id){
   msg.values.id = id;
   msg.values.setpoint = 10;
   msg.values.crc = gen_crc16(&msg.data[4],13-4-2);
-  ROS_INFO("------------");
-  for(int i=0;i<sizeof(msg);i++){
-      printf("%x\t",msg.data[i]);
-  }
-  printf("\n");
+  // ROS_INFO("------------");
+  // for(int i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, msg.data, 13);
 }
 
@@ -86,11 +116,11 @@ void IcebusHost::SendControlMode(int id){
   msg.values.setpoint = 1;
   msg.values.current_limit = 80;
   msg.values.crc = gen_crc16(&msg.data[4],28-4-2);
-  ROS_INFO("------------");
-  for(int i=0;i<sizeof(msg);i++){
-      printf("%x\t",msg.data[i]);
-  }
-  printf("\n");
+  // ROS_INFO("------------");
+  // for(int i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, msg.data, 28);
 }
 
@@ -168,12 +198,38 @@ void IcebusHost::SendStatusResponse(int id){
   msg.values.setpoint = 1;
   msg.values.neopixel_color = 80;
   msg.values.crc = gen_crc16(&msg.data[4],28-4-2);
-  ROS_INFO("------------");
-  for(int i=0;i<sizeof(msg);i++){
-      printf("%x\t",msg.data[i]);
-  }
-  printf("\n");
+  // ROS_INFO("------------");
+  // for(int i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
   write(serial_port, msg.data, 28);
+}
+
+void IcebusHost::SendM3Command(int id, int32_t setpoint){
+  M3Command msg;
+  msg.values.id = id;
+  msg.values.setpoint = setpoint;
+  msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
+  // printf("command------------>\t");
+  // for(uint i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
+  write(serial_port, msg.data, sizeof(msg));
+}
+
+void IcebusHost::SendM3ControlMode(int id, uint8_t control_mode){
+  M3ControlMode msg;
+  msg.values.id = id;
+  msg.values.control_mode = control_mode;
+  msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
+  // printf("control_mode------------>\t");
+  // for(uint i=0;i<sizeof(msg);i++){
+  //     printf("%x\t",msg.data[i]);
+  // }
+  // printf("\n");
+  write(serial_port, msg.data, sizeof(msg));
 }
 
 void IcebusHost::Listen(int id){
@@ -194,7 +250,7 @@ void IcebusHost::Listen(int id){
     crc crc_received = gen_crc16(&read_buf[4],n-4-2);
     if(crc_received==(read_buf[n-1]<<8|read_buf[n-2])){
       switch(header){
-        case 0x1CE1CEBB: {
+        case 0xBBCEE11C: {
           ROS_INFO("status_request received for id %d", read_buf[4]);
           SendStatusResponse(id);
           break;
@@ -203,27 +259,27 @@ void IcebusHost::Listen(int id){
           ROS_INFO("command received for id %d", read_buf[4]);
           break;
         }
-        case 0xBAADAA55: {
+        case 0x55AAADBA: {
           ROS_INFO("control_mode received for id %d", read_buf[4]);
           break;
         }
-        case 0x1CEB00DA: {
+        case 0xDA00EB1C: {
           ROS_INFO("status_response received for id %d", read_buf[4]);
           break;
         }
-        case 0xABADBABE: {
+        case 0xBEBAADAB: {
           ROS_INFO("hand_status_request received for id %d", read_buf[4]);
           break;
         }
-        case 0xB105F00D: {
+        case 0x0DF005B1: {
           ROS_INFO("hand_command received for id %d", read_buf[4]);
           break;
         }
-        case 0xB16B00B5: {
+        case 0xB5006BB1: {
           ROS_INFO("hand_control_mode received for id %d", read_buf[4]);
           break;
         }
-        case 0x0B00B135: {
+        case 0x35B1000B: {
           ROS_INFO("hand_status_response received for id %d", read_buf[4]);
           HandStatusResponse msg;
           memcpy(msg.data,read_buf,sizeof(msg));
@@ -231,12 +287,184 @@ void IcebusHost::Listen(int id){
           ROS_WARN("current: %d %d %d %d", msg.values.current0, msg.values.current1, msg.values.current2, msg.values.current3);
           break;
         }
+        case 0xCAFEBABE: {
+          ROS_INFO("m3_command received for id %d", read_buf[4]);
+          break;
+        }
+        case 0xCAFED00D: {
+          ROS_INFO("m3_control_mode received for id %d", read_buf[4]);
+          break;
+        }
+        case 0xDABAD000: {
+          M3StatusResponse msg;
+          memcpy(msg.data,read_buf,sizeof(msg));
+          ROS_DEBUG("m3_status_response received for id %d\nsetpoint: %d\npos: %d\nvel: %d\ndis: %d\npwm: %d",
+          read_buf[4], msg.values.setpoint, msg.values.pos, msg.values.vel, msg.values.dis, msg.values.pwm);
+          for(auto &m:motor_config->motor){
+            if(m.second->bus_id==read_buf[4]){
+              encoder0_pos[m.second->motor_id_global] = msg.values.pos;
+              encoder1_pos[m.second->motor_id_global] = msg.values.vel;
+              displacement[m.second->motor_id_global] = msg.values.dis;
+              pwm[m.second->motor_id_global] = msg.values.pwm;
+              if(msg.values.setpoint!=setpoint[m.second->motor_id_global]){
+                SendM3Command(read_buf[4],setpoint[m.second->motor_id_global]);
+              }
+            }
+          }
+          break;
+        }
         default: ROS_WARN("header %x does not match",header);
       }
     }else{
-      ROS_WARN("crc doesn't match, crc received %x, crc calculated %x, header %x", (read_buf[7]<<8|read_buf[6]),crc_received,header);
+      ROS_WARN("crc doesn't match, crc received %x, crc calculated %x, header %x", (read_buf[n-1]<<8|read_buf[n-2]),crc_received,header);
     }
   }
+}
+
+void IcebusHost::MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPtr &msg) {
+    uint i = 0;
+    for (auto motor:msg->motor) {
+      if(motor_config->motor.find(motor) != motor_config->motor.end()){
+        if(control_mode[motor]!=3){
+          setpoint[motor] = msg->setpoint[i];
+        }
+      }else{
+        bool direct_pwm_override;
+        nh->getParam("direct_pwm_override",direct_pwm_override);
+        if(fabsf(msg->setpoint[i])>128 && !direct_pwm_override) {
+            ROS_WARN_THROTTLE(1,"setpoints exceeding sane direct pwm values (>128), "
+                                "what the heck are you publishing?!");
+        }else {
+            setpoint[motor] = msg->setpoint[i];
+        }
+      }
+      i++;
+    }
+}
+
+void IcebusHost::MotorStatePublisher() {
+    ros::Rate rate(100);
+    roboy_middleware_msgs::MotorState msg;
+    for (auto &m:motor_config->motor) {
+      msg.global_id.push_back(m.second->motor_id_global);
+    }
+    msg.setpoint.resize(motor_config->motor.size());
+    msg.encoder0_pos.resize(motor_config->motor.size());
+    msg.encoder1_pos.resize(motor_config->motor.size());
+    msg.displacement.resize(motor_config->motor.size());
+    msg.current.resize(motor_config->motor.size());
+    while (keep_publishing && ros::ok()) {
+        int i = 0;
+        for (auto &m:motor_config->motor) {
+            msg.setpoint[i] = setpoint[m.second->motor_id_global];
+            msg.encoder0_pos[i] = encoder0_pos[m.second->motor_id_global];
+            msg.encoder1_pos[i] = encoder1_pos[m.second->motor_id_global];
+            msg.displacement[i] = displacement[m.second->motor_id_global];
+            msg.current[i] = current[m.second->motor_id_global];
+            i++;
+        }
+        motorState.publish(msg);
+        rate.sleep();
+    }
+}
+
+void IcebusHost::MotorInfoPublisher() {
+    ros::Rate rate(10);
+    int32_t light_up_motor = 0;
+    bool dir = true;
+    while (keep_publishing && ros::ok()) {
+        roboy_middleware_msgs::MotorInfo msg;
+        int motor = 0;
+        for (auto &m:motor_config->motor) {
+            msg.control_mode.push_back(control_mode[m.second->motor_id_global]);
+            msg.Kp.push_back(Kp[m.second->motor_id_global]);
+            msg.Ki.push_back(Ki[m.second->motor_id_global]);
+            msg.Kd.push_back(Kd[m.second->motor_id_global]);
+            msg.deadband.push_back(deadband[m.second->motor_id_global]);
+            msg.IntegralLimit.push_back(IntegralLimit[m.second->motor_id_global]);
+            msg.PWMLimit.push_back(PWMLimit[m.second->motor_id_global]);
+            msg.current_limit.push_back(current_limit[m.second->motor_id_global]);
+            msg.communication_quality.push_back(communication_quality[m.second->motor_id_global]);
+            msg.error_code.push_back("ok");
+            msg.neopixelColor.push_back(0);
+            msg.setpoint.push_back(setpoint[m.second->motor_id_global]);
+            msg.pwm.push_back(pwm[m.second->motor_id_global]);
+            motor++;
+        }
+        motorInfo.publish(msg);
+        rate.sleep();
+    }
+}
+
+bool IcebusHost::MotorConfigService(roboy_middleware_msgs::MotorConfigService::Request &req,
+                                     roboy_middleware_msgs::MotorConfigService::Response &res) {
+    stringstream str;
+    uint i = 0;
+    for (int motor:req.config.motor) {
+        control_Parameters_t params;
+        control_mode[motor] = req.config.control_mode[i];
+        if (req.config.control_mode[i] == 0)
+            str << "\t" << (int) motor << ": ENCODER0";
+        if (req.config.control_mode[i] == 1)
+            str << "\t" << (int) motor << ": ENCODER1";
+        if (req.config.control_mode[i] == 2)
+            str << "\t" << (int) motor << ": DISPLACEMENT";
+        if (req.config.control_mode[i] == 3)
+            str << "\t" << (int) motor << ": DIRECT_PWM";
+        if(i<req.config.PWMLimit.size())
+            PWMLimit[motor] = req.config.PWMLimit[i];
+        if(i<req.config.Kp.size())
+            Kp[motor] = req.config.Kp[i];
+        if(i<req.config.Ki.size())
+            Ki[motor] = req.config.Ki[i];
+        if(i<req.config.Kd.size())
+            Kd[motor] = req.config.Kd[i];
+        if(i<req.config.deadband.size())
+            deadband[motor] = req.config.deadband[i];
+        if(i<req.config.IntegralLimit.size())
+            IntegralLimit[motor] = req.config.IntegralLimit[i];
+        if(i<req.config.update_frequency.size())
+            ROS_WARN("not implemented");
+        ROS_INFO("setting motor %d to control mode %d with setpoint %d", motor, req.config.control_mode[i],
+                 req.config.setpoint[i]);
+        i++;
+    }
+
+    ROS_INFO("serving motor config service for %s control", str.str().c_str());
+    return true;
+}
+
+bool IcebusHost::ControlModeService(roboy_middleware_msgs::ControlMode::Request &req,
+                                     roboy_middleware_msgs::ControlMode::Response &res) {
+    if (!emergency_stop) {
+        if (req.motor_id.empty()) {
+            ROS_ERROR("no motor ids defined, cannot change control mode");
+            return false;
+        } else {
+            int i=0;
+            for (int motor:req.motor_id) {
+              if(motor_config->motor.find(motor) != motor_config->motor.end()){
+                control_mode[motor] = req.control_mode;
+                if(i<req.set_points.size()){
+                  setpoint[motor] = req.set_points[i];
+                }
+                ROS_INFO("changing control mode of motor %d to %d", motor, req.control_mode);
+              }
+            }
+            i++;
+        }
+        return true;
+    } else {
+        ROS_WARN("emergency stop active, can NOT change control mode");
+        return false;
+    }
+}
+
+bool IcebusHost::EmergencyStopService(std_srvs::SetBool::Request &req,
+                                       std_srvs::SetBool::Response &res) {
+
+    ROS_ERROR("emergency stop not implemented");
+    return false;
 }
 
 void IcebusHost::crcInit(void){
