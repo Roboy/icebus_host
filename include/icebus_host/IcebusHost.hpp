@@ -264,6 +264,14 @@ public:
   bool ControlModeService(roboy_middleware_msgs::ControlMode::Request &req,
                           roboy_middleware_msgs::ControlMode::Response &res);
 
+  int32_t interpret24bitAsInt32(uint8_t *byteArray) {
+      return (
+          (byteArray[0] << 24)
+      |   (byteArray[1] << 16)
+      |   (byteArray[2] << 8)
+      ) >> 8;
+  };
+
   MotorConfigPtr motor_config;
 private:
   ros::NodeHandlePtr nh;

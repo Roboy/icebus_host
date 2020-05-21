@@ -93,7 +93,8 @@ void IcebusHost::SendStatusRequest(int id){
 void IcebusHost::SendCommand(int id){
   Command msg;
   msg.values.id = id;
-  msg.values.setpoint = 10;
+  msg.values.setpoint = setpoint[0];
+  msg.values.neopxl_color = setpoint[0];
   msg.values.crc = gen_crc16(&msg.data[4],13-4-2);
   // ROS_INFO("------------");
   // for(int i=0;i<sizeof(msg);i++){
@@ -263,8 +264,16 @@ void IcebusHost::Listen(int id){
           ROS_INFO("control_mode received for id %d", read_buf[4]);
           break;
         }
-        case 0xDA00EB1C: {
+        case 0x1CEB00DA: {
           ROS_INFO("status_response received for id %d", read_buf[4]);
+          StatusResponse msg;
+          memcpy(msg.data,read_buf,sizeof(msg));
+          encoder0_pos[0] = interpret24bitAsInt32(&read_buf[6]);
+          encoder1_pos[0] = interpret24bitAsInt32(&read_buf[9]);
+          displacement[0] = interpret24bitAsInt32(&read_buf[18]);
+          current[0] = msg.values.current;
+          if(setpoint[0]!=interpret24bitAsInt32(&read_buf[12]))
+            SendCommand(read_buf[4]);
           break;
         }
         case 0xBEBAADAB: {
