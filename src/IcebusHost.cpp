@@ -31,10 +31,10 @@ IcebusHost::IcebusHost(string device, string motor_config_file_path){
   tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL); // Disable any special handling of received bytes
   tty.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
   tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
-  tty.c_cc[VTIME] = 1;    // Wait for up to 1s (10 deciseconds)
+  tty.c_cc[VTIME] = 0;    // Wait for up to 1s (10 deciseconds)
   tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
-  cfsetispeed(&tty, B460800);
-  cfsetospeed(&tty, B460800);
+  cfsetispeed(&tty, B230400);
+  cfsetospeed(&tty, B230400);
   // Save tty settings, also checking for error
   if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
       ROS_FATAL("Error %i from tcsetattr: %s\n", errno, strerror(errno));
@@ -62,6 +62,8 @@ IcebusHost::IcebusHost(string device, string motor_config_file_path){
                                            this);
    motorCommand_sub = nh->subscribe("/roboy/middleware/MotorCommand", 1, &IcebusHost::MotorCommand, this);
 
+   neopixel_sub = nh->subscribe("/roboy/middleware/Neopixel", 1, &IcebusHost::Neopixel, this);
+
    motorStateThread = boost::shared_ptr<std::thread>(new std::thread(&IcebusHost::MotorStatePublisher, this));
     motorStateThread->detach();
 
@@ -70,6 +72,13 @@ IcebusHost::IcebusHost(string device, string motor_config_file_path){
 
    spinner = boost::shared_ptr<ros::AsyncSpinner>(new ros::AsyncSpinner(0));
    spinner->start();
+}
+
+void IcebusHost::Neopixel(const roboy_middleware_msgs::Neopixel::ConstPtr &msg){
+  external_led_control = true;
+  for (auto motor:msg->motor) {
+      neopixel_color[motor] = int32_t(msg->b<<16|msg->r<<8|msg->g);
+  }
 }
 
 void IcebusHost::SendStatusRequest(int id){
@@ -93,8 +102,9 @@ void IcebusHost::SendStatusRequest(int id){
 void IcebusHost::SendCommand(int id){
   Command msg;
   msg.values.id = id;
-  msg.values.setpoint = setpoint[0];
-  msg.values.neopxl_color = setpoint[0];
+  int motor_id_global = GetGlobalID(id);
+  msg.values.setpoint = setpoint[motor_id_global];
+  msg.values.neopxl_color = neopixel_color[motor_id_global];
   msg.values.crc = gen_crc16(&msg.data[4],13-4-2);
   // ROS_INFO("------------");
   // for(int i=0;i<sizeof(msg);i++){
@@ -107,15 +117,16 @@ void IcebusHost::SendCommand(int id){
 void IcebusHost::SendControlMode(int id){
   ControlMode msg;
   msg.values.id = id;
-  msg.values.control_mode = 1;
-  msg.values.Kp = 0;
-  msg.values.Ki = 1;
-  msg.values.Kd = 2;
-  msg.values.PWMLimit = 500;
-  msg.values.IntegralLimit = 50;
-  msg.values.deadband = 1;
-  msg.values.setpoint = 1;
-  msg.values.current_limit = 80;
+  int motor_id_global = GetGlobalID(id);
+  msg.values.control_mode = control_mode[motor_id_global];
+  msg.values.Kp = Kp[motor_id_global];
+  msg.values.Ki = Ki[motor_id_global];
+  msg.values.Kd = Kd[motor_id_global];
+  msg.values.PWMLimit = PWMLimit[motor_id_global];
+  msg.values.IntegralLimit = IntegralLimit[motor_id_global];
+  msg.values.deadband = deadband[motor_id_global];
+  msg.values.setpoint = setpoint[motor_id_global];
+  msg.values.current_limit = current_limit[motor_id_global];
   msg.values.crc = gen_crc16(&msg.data[4],28-4-2);
   // ROS_INFO("------------");
   // for(int i=0;i<sizeof(msg);i++){
@@ -268,11 +279,14 @@ void IcebusHost::Listen(int id){
           ROS_INFO("status_response received for id %d", read_buf[4]);
           StatusResponse msg;
           memcpy(msg.data,read_buf,sizeof(msg));
-          encoder0_pos[0] = interpret24bitAsInt32(&read_buf[6]);
-          encoder1_pos[0] = interpret24bitAsInt32(&read_buf[9]);
-          displacement[0] = interpret24bitAsInt32(&read_buf[18]);
-          current[0] = msg.values.current;
-          if(setpoint[0]!=interpret24bitAsInt32(&read_buf[12]))
+          int motor_id_global = GetGlobalID(msg.values.id);
+          encoder0_pos[motor_id_global] = interpret24bitAsInt32(&read_buf[6]);
+          encoder1_pos[motor_id_global] = interpret24bitAsInt32(&read_buf[9]);
+          duty[motor_id_global] = interpret24bitAsInt32(&read_buf[15]);
+          displacement[motor_id_global] = interpret24bitAsInt32(&read_buf[18]);
+          current[motor_id_global] = int16_t(read_buf[21]<<8|read_buf[22])/80.0f;
+          if(setpoint[motor_id_global]!=interpret24bitAsInt32(&read_buf[12]) ||
+              neopixel_color[motor_id_global]!=interpret24bitAsInt32(&read_buf[21]))
             SendCommand(read_buf[4]);
           break;
         }
@@ -311,12 +325,12 @@ void IcebusHost::Listen(int id){
           read_buf[4], msg.values.setpoint, msg.values.pos, msg.values.vel, msg.values.dis, msg.values.pwm);
           for(auto &m:motor_config->motor){
             if(m.second->bus_id==read_buf[4]){
-              encoder0_pos[m.second->motor_id_global] = msg.values.pos;
-              encoder1_pos[m.second->motor_id_global] = msg.values.vel;
-              displacement[m.second->motor_id_global] = msg.values.dis;
-              pwm[m.second->motor_id_global] = msg.values.pwm;
-              if(msg.values.setpoint!=setpoint[m.second->motor_id_global]){
-                SendM3Command(read_buf[4],setpoint[m.second->motor_id_global]);
+              encoder0_pos[m.first] = msg.values.pos;
+              encoder1_pos[m.first] = msg.values.vel;
+              displacement[m.first] = msg.values.dis;
+              duty[m.first] = msg.values.pwm;
+              if(msg.values.setpoint!=setpoint[m.first]){
+                SendM3Command(read_buf[4],setpoint[m.first]);
               }
             }
           }
@@ -333,9 +347,10 @@ void IcebusHost::Listen(int id){
 void IcebusHost::MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPtr &msg) {
     uint i = 0;
     for (auto motor:msg->motor) {
-      if(motor_config->motor.find(motor) != motor_config->motor.end()){
-        if(control_mode[motor]!=3){
-          setpoint[motor] = msg->setpoint[i];
+      auto m = motor_config->motor.find(motor);
+      if( m != motor_config->motor.end()){
+        if(control_mode[m->first]!=3){
+          setpoint[m->first] = msg->setpoint[i];
         }
       }else{
         bool direct_pwm_override;
@@ -344,7 +359,7 @@ void IcebusHost::MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPt
             ROS_WARN_THROTTLE(1,"setpoints exceeding sane direct pwm values (>128), "
                                 "what the heck are you publishing?!");
         }else {
-            setpoint[motor] = msg->setpoint[i];
+            setpoint[m->second->bus_id] = msg->setpoint[i];
         }
       }
       i++;
@@ -353,24 +368,16 @@ void IcebusHost::MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPt
 
 void IcebusHost::MotorStatePublisher() {
     ros::Rate rate(100);
-    roboy_middleware_msgs::MotorState msg;
-    for (auto &m:motor_config->motor) {
-      msg.global_id.push_back(m.second->motor_id_global);
-    }
-    msg.setpoint.resize(motor_config->motor.size());
-    msg.encoder0_pos.resize(motor_config->motor.size());
-    msg.encoder1_pos.resize(motor_config->motor.size());
-    msg.displacement.resize(motor_config->motor.size());
-    msg.current.resize(motor_config->motor.size());
+
     while (keep_publishing && ros::ok()) {
-        int i = 0;
+        roboy_middleware_msgs::MotorState msg;
         for (auto &m:motor_config->motor) {
-            msg.setpoint[i] = setpoint[m.second->motor_id_global];
-            msg.encoder0_pos[i] = encoder0_pos[m.second->motor_id_global];
-            msg.encoder1_pos[i] = encoder1_pos[m.second->motor_id_global];
-            msg.displacement[i] = displacement[m.second->motor_id_global];
-            msg.current[i] = current[m.second->motor_id_global];
-            i++;
+            msg.global_id.push_back(m.first);
+            msg.setpoint.push_back(setpoint[m.first]);
+            msg.encoder0_pos.push_back(encoder0_pos[m.first]);
+            msg.encoder1_pos.push_back(encoder1_pos[m.first]);
+            msg.displacement.push_back(displacement[m.first]);
+            msg.current.push_back(current[m.first]);
         }
         motorState.publish(msg);
         rate.sleep();
@@ -385,19 +392,20 @@ void IcebusHost::MotorInfoPublisher() {
         roboy_middleware_msgs::MotorInfo msg;
         int motor = 0;
         for (auto &m:motor_config->motor) {
-            msg.control_mode.push_back(control_mode[m.second->motor_id_global]);
-            msg.Kp.push_back(Kp[m.second->motor_id_global]);
-            msg.Ki.push_back(Ki[m.second->motor_id_global]);
-            msg.Kd.push_back(Kd[m.second->motor_id_global]);
-            msg.deadband.push_back(deadband[m.second->motor_id_global]);
-            msg.IntegralLimit.push_back(IntegralLimit[m.second->motor_id_global]);
-            msg.PWMLimit.push_back(PWMLimit[m.second->motor_id_global]);
-            msg.current_limit.push_back(current_limit[m.second->motor_id_global]);
-            msg.communication_quality.push_back(communication_quality[m.second->motor_id_global]);
+            msg.global_id.push_back(m.first);
+            msg.control_mode.push_back(control_mode[m.first]);
+            msg.Kp.push_back(Kp[m.first]);
+            msg.Ki.push_back(Ki[m.first]);
+            msg.Kd.push_back(Kd[m.first]);
+            msg.deadband.push_back(deadband[m.first]);
+            msg.IntegralLimit.push_back(IntegralLimit[m.first]);
+            msg.PWMLimit.push_back(PWMLimit[m.first]);
+            msg.current_limit.push_back(current_limit[m.first]);
+            msg.communication_quality.push_back(communication_quality[m.first]);
             msg.error_code.push_back("ok");
             msg.neopixelColor.push_back(0);
-            msg.setpoint.push_back(setpoint[m.second->motor_id_global]);
-            msg.pwm.push_back(pwm[m.second->motor_id_global]);
+            msg.setpoint.push_back(setpoint[m.first]);
+            msg.pwm.push_back(duty[m.first]);
             motor++;
         }
         motorInfo.publish(msg);

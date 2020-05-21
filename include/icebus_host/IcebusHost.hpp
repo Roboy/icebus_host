@@ -40,6 +40,7 @@
 #include <roboy_middleware_msgs/MotorCommand.h>
 #include <roboy_middleware_msgs/MotorConfigService.h>
 #include <roboy_middleware_msgs/MotorState.h>
+#include <roboy_middleware_msgs/Neopixel.h>
 
 // C library headers
 #include <stdio.h>
@@ -247,6 +248,8 @@ public:
    * @param msg motor command
    */
   void MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPtr &msg);
+
+  void Neopixel(const roboy_middleware_msgs::Neopixel::ConstPtr &msg);
   /**
    * Emergency stop service, zeros all PID gains, causing all motors to stop, PID parameters and control mode are restored on release
    * @param req
@@ -272,21 +275,33 @@ public:
       ) >> 8;
   };
 
+  int32_t GetGlobalID(int bus_id){
+    int motor_id_global = 0;
+    for(auto m:motor_config->motor){
+      if(m.second->bus_id==bus_id){
+        motor_id_global = m.second->motor_id_global;
+        return motor_id_global;
+      }
+    }
+    return -1;
+  }
+
   MotorConfigPtr motor_config;
+  map<int, float> setpoint, encoder0_pos, encoder1_pos, displacement, current;
+  map<int, int> neopixel_color;
+  map<int, float> Kp, Ki, Kd, deadband, IntegralLimit, PWMLimit, current_limit, duty;
+  map<int, float> communication_quality;
+  bool external_led_control = false;
 private:
   ros::NodeHandlePtr nh;
   boost::shared_ptr<ros::AsyncSpinner> spinner;
-  ros::Subscriber motorCommand_sub;
+  ros::Subscriber motorCommand_sub, neopixel_sub;
   ros::Publisher motorState, motorInfo;
   bool keep_publishing = true, emergency_stop = false;
   ros::ServiceServer motorConfig_srv, controlMode_srv, emergencyStop_srv;
   boost::shared_ptr<std::thread> motorInfoThread, motorStateThread;
-  map<int, float> setpoint, encoder0_pos, encoder1_pos, displacement, current;
-  map<int, float> Kp, Ki, Kd, deadband, IntegralLimit, PWMLimit, current_limit, pwm;
-  map<int, float> communication_quality;
   map<int, map<int, control_Parameters_t>> control_params_backup;
   map<int, int> control_mode_backup,control_mode;
-
   crc  crcTable[256];
   void crcInit();
   crc gen_crc16(const uint8_t *data, uint16_t size);

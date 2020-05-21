@@ -10,16 +10,26 @@ int main(int argc, char *argv[]) {
 
   IcebusHost icebus("/dev/ttyUSB0", motor_config_file_path);
   ros::Time::init();
-  ros::Rate rate(100);
-  int16_t pos=0;
-  bool dir = true;
+  ros::Rate rate(50);
+  bool toggle = true;
   int n=0;
+  ros::Time t0=ros::Time::now();
   while(true){
     for(auto &m:icebus.motor_config->motor){
       icebus.SendStatusRequest(m.second->bus_id);
       icebus.Listen(m.second->bus_id);
     }
     rate.sleep();
+    if((ros::Time::now()-t0).toSec()>1 && !icebus.external_led_control){
+      t0 = ros::Time::now();
+      for(auto &m:icebus.motor_config->motor){
+        if(toggle)
+          icebus.neopixel_color[m.first] = 50<<16;
+        else
+          icebus.neopixel_color[m.first] = 0;
+        toggle = !toggle;
+      }
+    }
   }
   return 0;
 }
