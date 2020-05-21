@@ -33,8 +33,8 @@ IcebusHost::IcebusHost(string device, string motor_config_file_path){
   tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
   tty.c_cc[VTIME] = 0;    // Wait for up to 1s (10 deciseconds)
   tty.c_cc[VMIN] = 0; //returning as soon as this amount of data is received.
-  cfsetispeed(&tty, B230400);
-  cfsetospeed(&tty, B230400);
+  cfsetispeed(&tty, B460800);
+  cfsetospeed(&tty, B460800);
   // Save tty settings, also checking for error
   if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
       ROS_FATAL("Error %i from tcsetattr: %s\n", errno, strerror(errno));

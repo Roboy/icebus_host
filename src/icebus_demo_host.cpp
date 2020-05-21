@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
 
   IcebusHost icebus("/dev/ttyUSB0", motor_config_file_path);
   ros::Time::init();
-  ros::Rate rate(50);
+  ros::Rate rate(100);
   bool toggle = true;
   int n=0;
   ros::Time t0=ros::Time::now();
