@@ -77,7 +77,7 @@ IcebusHost::IcebusHost(string device, string motor_config_file_path){
 void IcebusHost::Neopixel(const roboy_middleware_msgs::Neopixel::ConstPtr &msg){
   external_led_control = true;
   for (auto motor:msg->motor) {
-      neopixel_color[motor] = int32_t(msg->b<<16|msg->r<<8|msg->g);
+      neopixel_color[motor] = int32_t(msg->g<<16|msg->r<<8|msg->b);
   }
 }
 
@@ -103,8 +103,8 @@ void IcebusHost::SendCommand(int id){
   Command msg;
   msg.values.id = id;
   int motor_id_global = GetGlobalID(id);
-  msg.values.setpoint = setpoint[motor_id_global];
-  msg.values.neopxl_color = neopixel_color[motor_id_global];
+  msg.values.setpoint = swap_byte_order(setpoint[motor_id_global]);
+  msg.values.neopxl_color = swap_byte_order(neopixel_color[motor_id_global]);
   msg.values.crc = gen_crc16(&msg.data[4],13-4-2);
   // ROS_INFO("------------");
   // for(int i=0;i<sizeof(msg);i++){
@@ -119,14 +119,14 @@ void IcebusHost::SendControlMode(int id){
   msg.values.id = id;
   int motor_id_global = GetGlobalID(id);
   msg.values.control_mode = control_mode[motor_id_global];
-  msg.values.Kp = Kp[motor_id_global];
-  msg.values.Ki = Ki[motor_id_global];
-  msg.values.Kd = Kd[motor_id_global];
-  msg.values.PWMLimit = PWMLimit[motor_id_global];
-  msg.values.IntegralLimit = IntegralLimit[motor_id_global];
-  msg.values.deadband = deadband[motor_id_global];
-  msg.values.setpoint = setpoint[motor_id_global];
-  msg.values.current_limit = current_limit[motor_id_global];
+  msg.values.Kp = swap_byte_order(Kp[motor_id_global]);
+  msg.values.Ki = swap_byte_order(Ki[motor_id_global]);
+  msg.values.Kd = swap_byte_order(Kd[motor_id_global]);
+  msg.values.PWMLimit = swap_byte_order(PWMLimit[motor_id_global]);
+  msg.values.IntegralLimit = swap_byte_order(IntegralLimit[motor_id_global]);
+  msg.values.deadband = swap_byte_order(deadband[motor_id_global]);
+  msg.values.setpoint = swap_byte_order(setpoint[motor_id_global]);
+  msg.values.current_limit = swap_byte_order(current_limit[motor_id_global]);
   msg.values.crc = gen_crc16(&msg.data[4],28-4-2);
   // ROS_INFO("------------");
   // for(int i=0;i<sizeof(msg);i++){
@@ -276,7 +276,7 @@ void IcebusHost::Listen(int id){
           break;
         }
         case 0x1CEB00DA: {
-          ROS_INFO("status_response received for id %d", read_buf[4]);
+          ROS_INFO_THROTTLE(5,"status_response received for id %d", read_buf[4]);
           StatusResponse msg;
           memcpy(msg.data,read_buf,sizeof(msg));
           int motor_id_global = GetGlobalID(msg.values.id);
@@ -285,6 +285,9 @@ void IcebusHost::Listen(int id){
           duty[motor_id_global] = interpret24bitAsInt32(&read_buf[15]);
           displacement[motor_id_global] = interpret24bitAsInt32(&read_buf[18]);
           current[motor_id_global] = int16_t(read_buf[21]<<8|read_buf[22])/80.0f;
+          if(control_mode[motor_id_global]!=read_buf[5]){
+            SendControlMode(read_buf[4]);
+          }
           if(setpoint[motor_id_global]!=interpret24bitAsInt32(&read_buf[12]) ||
               neopixel_color[motor_id_global]!=interpret24bitAsInt32(&read_buf[21]))
             SendCommand(read_buf[4]);
@@ -336,10 +339,10 @@ void IcebusHost::Listen(int id){
           }
           break;
         }
-        default: ROS_WARN("header %x does not match",header);
+        default: ROS_WARN_THROTTLE(5,"header %x does not match",header);
       }
     }else{
-      ROS_WARN("crc doesn't match, crc received %x, crc calculated %x, header %x", (read_buf[n-1]<<8|read_buf[n-2]),crc_received,header);
+      ROS_WARN_THROTTLE(5,"crc doesn't match, crc received %x, crc calculated %x, header %x", (read_buf[n-1]<<8|read_buf[n-2]),crc_received,header);
     }
   }
 }

@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
       t0 = ros::Time::now();
       for(auto &m:icebus.motor_config->motor){
         if(toggle)
-          icebus.neopixel_color[m.first] = 50<<16;
+          icebus.neopixel_color[m.first] = 50;
         else
           icebus.neopixel_color[m.first] = 0;
         toggle = !toggle;

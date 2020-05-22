@@ -286,6 +286,15 @@ public:
     return -1;
   }
 
+  int32_t swap_byte_order(int32_t value){
+    union{
+      uint8_t data[3];
+      int32_t value:24;
+    }to_swap;
+    to_swap.value = value;
+    return (to_swap.data[0]<<16|to_swap.data[1]<<8|to_swap.data[2]);
+  }
+
   MotorConfigPtr motor_config;
   map<int, float> setpoint, encoder0_pos, encoder1_pos, displacement, current;
   map<int, int> neopixel_color;
