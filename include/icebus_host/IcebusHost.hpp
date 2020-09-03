@@ -115,7 +115,7 @@ union ControlMode{
         int32_t setpoint:24;
         int16_t current_limit;
         uint16_t crc;
-    }values = {.header = 0x55AAADBA};
+    }values = {.header = 0x55A5ADBA};
     uint8_t data[28];
 };
 
@@ -293,6 +293,14 @@ public:
     }to_swap;
     to_swap.value = value;
     return (to_swap.data[0]<<16|to_swap.data[1]<<8|to_swap.data[2]);
+  }
+  int32_t swap_byte_order16(int32_t value){
+    union{
+      uint8_t data[2];
+      int16_t value;
+    }to_swap;
+    to_swap.value = value;
+    return (to_swap.data[0]<<8|to_swap.data[1]);
   }
 
   MotorConfigPtr motor_config;

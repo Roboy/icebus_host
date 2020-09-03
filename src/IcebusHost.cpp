@@ -119,14 +119,15 @@ void IcebusHost::SendControlMode(int id){
   msg.values.id = id;
   int motor_id_global = GetGlobalID(id);
   msg.values.control_mode = control_mode[motor_id_global];
-  msg.values.Kp = swap_byte_order(Kp[motor_id_global]);
-  msg.values.Ki = swap_byte_order(Ki[motor_id_global]);
-  msg.values.Kd = swap_byte_order(Kd[motor_id_global]);
+  msg.values.Kp = swap_byte_order16(Kp[motor_id_global]);
+  msg.values.Ki = swap_byte_order16(Ki[motor_id_global]);
+  msg.values.Kd = swap_byte_order16(Kd[motor_id_global]);
   msg.values.PWMLimit = swap_byte_order(PWMLimit[motor_id_global]);
   msg.values.IntegralLimit = swap_byte_order(IntegralLimit[motor_id_global]);
   msg.values.deadband = swap_byte_order(deadband[motor_id_global]);
   msg.values.setpoint = swap_byte_order(setpoint[motor_id_global]);
-  msg.values.current_limit = swap_byte_order(current_limit[motor_id_global]);
+  int current_limit_converted = int(current_limit[motor_id_global]*80);
+  msg.values.current_limit = swap_byte_order16(current_limit_converted);
   msg.values.crc = gen_crc16(&msg.data[4],28-4-2);
   // ROS_INFO("------------");
   // for(int i=0;i<sizeof(msg);i++){
@@ -276,7 +277,7 @@ void IcebusHost::Listen(int id){
           break;
         }
         case 0x1CEB00DA: {
-          ROS_INFO_THROTTLE(5,"status_response received for id %d", read_buf[4]);
+          ROS_INFO_THROTTLE(5,"status_response received for id %d control_mode %d", read_buf[4], read_buf[5]);
           StatusResponse msg;
           memcpy(msg.data,read_buf,sizeof(msg));
           int motor_id_global = GetGlobalID(msg.values.id);
@@ -286,6 +287,7 @@ void IcebusHost::Listen(int id){
           displacement[motor_id_global] = interpret24bitAsInt32(&read_buf[18]);
           current[motor_id_global] = int16_t(read_buf[21]<<8|read_buf[22])/80.0f;
           if(control_mode[motor_id_global]!=read_buf[5]){
+            ROS_WARN("updating control mode");
             SendControlMode(read_buf[4]);
           }
           if(setpoint[motor_id_global]!=interpret24bitAsInt32(&read_buf[12]) ||
@@ -354,15 +356,15 @@ void IcebusHost::MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPt
       if( m != motor_config->motor.end()){
         if(control_mode[m->first]!=3){
           setpoint[m->first] = msg->setpoint[i];
-        }
-      }else{
-        bool direct_pwm_override;
-        nh->getParam("direct_pwm_override",direct_pwm_override);
-        if(fabsf(msg->setpoint[i])>128 && !direct_pwm_override) {
-            ROS_WARN_THROTTLE(1,"setpoints exceeding sane direct pwm values (>128), "
-                                "what the heck are you publishing?!");
-        }else {
-            setpoint[m->second->bus_id] = msg->setpoint[i];
+        }else{
+          bool direct_pwm_override;
+          nh->getParam("direct_pwm_override",direct_pwm_override);
+          if(fabsf(msg->setpoint[i])>128 && !direct_pwm_override) {
+              ROS_WARN_THROTTLE(1,"setpoints exceeding sane direct pwm values (>128), "
+                                  "what the heck are you publishing?!");
+          }else {
+              setpoint[m->first] = msg->setpoint[i];
+          }
         }
       }
       i++;
@@ -443,8 +445,12 @@ bool IcebusHost::MotorConfigService(roboy_middleware_msgs::MotorConfigService::R
             deadband[motor] = req.config.deadband[i];
         if(i<req.config.IntegralLimit.size())
             IntegralLimit[motor] = req.config.IntegralLimit[i];
+        if(i<req.config.current_limit.size())
+            current_limit[motor] = req.config.current_limit[i];
         if(i<req.config.update_frequency.size())
             ROS_WARN("not implemented");
+        if(i<req.config.current_limit.size())
+            setpoint[motor] = req.config.setpoint[i];
         ROS_INFO("setting motor %d to control mode %d with setpoint %d", motor, req.config.control_mode[i],
                  req.config.setpoint[i]);
         i++;
