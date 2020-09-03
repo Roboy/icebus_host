@@ -324,7 +324,7 @@ void IcebusHost::Listen(int id){
         case 0xDABAD000: {
           M3StatusResponse msg;
           memcpy(msg.data,read_buf,sizeof(msg));
-          ROS_DEBUG("m3_status_response received for id %d\nsetpoint: %d\npos: %d\nvel: %d\ndis: %d\npwm: %d",
+          ROS_INFO("m3_status_response received for id %d\nsetpoint: %d\npos: %d\nvel: %d\ndis: %d\npwm: %d",
           read_buf[4], msg.values.setpoint, msg.values.pos, msg.values.vel, msg.values.dis, msg.values.pwm);
           for(auto &m:motor_config->motor){
             if(m.second->bus_id==read_buf[4]){
