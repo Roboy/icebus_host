@@ -326,7 +326,7 @@ void IcebusHost::Listen(int id){
         case 0xDABAD000: {
           M3StatusResponse msg;
           memcpy(msg.data,read_buf,sizeof(msg));
-          ROS_INFO("m3_status_response received for id %d\nsetpoint: %d\npos: %d\nvel: %d\ndis: %d\npwm: %d",
+          ROS_INFO_THROTTLE(10,"m3_status_response received for id %d\nsetpoint: %d\npos: %d\nvel: %d\ndis: %d\npwm: %d",
           read_buf[4], msg.values.setpoint, msg.values.pos, msg.values.vel, msg.values.dis, msg.values.pwm);
           for(auto &m:motor_config->motor){
             if(m.second->bus_id==read_buf[4]){
@@ -351,7 +351,7 @@ void IcebusHost::Listen(int id){
 
 void IcebusHost::MotorCommand(const roboy_middleware_msgs::MotorCommand::ConstPtr &msg) {
     uint i = 0;
-    for (auto motor:msg->motor) {
+    for (auto motor:msg->global_id) {
       auto m = motor_config->motor.find(motor);
       if( m != motor_config->motor.end()){
         if(control_mode[m->first]!=3){
@@ -422,7 +422,7 @@ bool IcebusHost::MotorConfigService(roboy_middleware_msgs::MotorConfigService::R
                                      roboy_middleware_msgs::MotorConfigService::Response &res) {
     stringstream str;
     uint i = 0;
-    for (int motor:req.config.motor) {
+    for (int motor:req.config.global_id) {
         control_Parameters_t params;
         control_mode[motor] = req.config.control_mode[i];
         if (req.config.control_mode[i] == 0)
@@ -445,11 +445,9 @@ bool IcebusHost::MotorConfigService(roboy_middleware_msgs::MotorConfigService::R
             deadband[motor] = req.config.deadband[i];
         if(i<req.config.IntegralLimit.size())
             IntegralLimit[motor] = req.config.IntegralLimit[i];
-        if(i<req.config.current_limit.size())
-            current_limit[motor] = req.config.current_limit[i];
         if(i<req.config.update_frequency.size())
             ROS_WARN("not implemented");
-        if(i<req.config.current_limit.size())
+        if(i<req.config.setpoint.size())
             setpoint[motor] = req.config.setpoint[i];
         ROS_INFO("setting motor %d to control mode %d with setpoint %d", motor, req.config.control_mode[i],
                  req.config.setpoint[i]);
@@ -463,12 +461,12 @@ bool IcebusHost::MotorConfigService(roboy_middleware_msgs::MotorConfigService::R
 bool IcebusHost::ControlModeService(roboy_middleware_msgs::ControlMode::Request &req,
                                      roboy_middleware_msgs::ControlMode::Response &res) {
     if (!emergency_stop) {
-        if (req.motor_id.empty()) {
+        if (req.global_id.empty()) {
             ROS_ERROR("no motor ids defined, cannot change control mode");
             return false;
         } else {
             int i=0;
-            for (int motor:req.motor_id) {
+            for (int motor:req.global_id) {
               if(motor_config->motor.find(motor) != motor_config->motor.end()){
                 control_mode[motor] = req.control_mode;
                 if(i<req.set_points.size()){
