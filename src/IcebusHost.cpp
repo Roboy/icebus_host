@@ -232,10 +232,18 @@ void IcebusHost::SendM3Command(int id, int32_t setpoint){
   write(serial_port, msg.data, sizeof(msg));
 }
 
-void IcebusHost::SendM3ControlMode(int id, uint8_t control_mode){
+void IcebusHost::SendM3ControlMode(int id, uint8_t control_mode, int32_t setpoint){
   M3ControlMode msg;
+  int m3_gid = GetGlobalID(id);
   msg.values.id = id;
   msg.values.control_mode = control_mode;
+  msg.values.setpoint = setpoint;
+  msg.values.Kp =             10;
+  msg.values.Ki =              1;
+  msg.values.Kd =              0;
+  msg.values.deadband =        0;
+  msg.values.IntegralLimit = 100;
+  msg.values.PWMLimit =      100;
   msg.values.crc = gen_crc16(&msg.data[4],sizeof(msg)-4-2);
   // printf("control_mode------------>\t");
   // for(uint i=0;i<sizeof(msg);i++){
@@ -326,19 +334,26 @@ void IcebusHost::Listen(int id){
         case 0xDABAD000: {
           M3StatusResponse msg;
           memcpy(msg.data,read_buf,sizeof(msg));
-          ROS_INFO_THROTTLE(10,"m3_status_response received for id %d\nsetpoint: %d\npos: %d\nvel: %d\ndis: %d\npwm: %d",
-          read_buf[4], msg.values.setpoint, msg.values.pos, msg.values.vel, msg.values.dis, msg.values.pwm);
-          for(auto &m:motor_config->motor){
-            if(m.second->bus_id==read_buf[4]){
-              encoder0_pos[m.first] = msg.values.pos;
-              encoder1_pos[m.first] = msg.values.vel;
-              displacement[m.first] = msg.values.dis;
-              duty[m.first] = msg.values.pwm;
-              if(msg.values.setpoint!=setpoint[m.first]){
-                SendM3Command(read_buf[4],setpoint[m.first]);
-              }
-            }
+          ROS_INFO_THROTTLE(10,"m3_status_response received for id %d\ncontrol mode: %d\nsetpoint: %f\npos: %d\nvel: %d\ndis: %d\npwm: %d",
+          read_buf[4], msg.values.control_mode, msg.values.setpoint, msg.values.pos, msg.values.vel, msg.values.dis, msg.values.pwm);
+
+          int m3_gid = GetGlobalID(read_buf[4]);
+
+          encoder0_pos[m3_gid] = msg.values.pos;
+          encoder1_pos[m3_gid] = msg.values.vel;
+          displacement[m3_gid] = msg.values.dis;
+          duty[m3_gid] = msg.values.pwm;
+
+          if(msg.values.control_mode != control_mode[m3_gid]){
+            ROS_INFO_THROTTLE(10,"Current control_mode: %d, updating mode to: %d",
+                msg.values.control_mode, control_mode[m3_gid]);
+            SendM3ControlMode(read_buf[4], control_mode[m3_gid], setpoint[m3_gid]);
+          }else if(msg.values.setpoint!=setpoint[m3_gid]){
+            ROS_INFO_THROTTLE(10,"Current setpoint: %d, sending desired setpoint: %f",
+                msg.values.setpoint, setpoint[m3_gid]);
+            SendM3Command(read_buf[4],setpoint[m3_gid]);
           }
+          
           break;
         }
         default: ROS_WARN_THROTTLE(5,"header %x does not match",header);
@@ -472,7 +487,7 @@ bool IcebusHost::ControlModeService(roboy_middleware_msgs::ControlMode::Request 
                 if(i<req.set_points.size()){
                   setpoint[motor] = req.set_points[i];
                 }
-                ROS_INFO("changing control mode of motor %d to %d", motor, req.control_mode);
+                ROS_INFO("changing control mode of motor %d to %d, and pushing setpoint: %f", motor, req.control_mode, setpoint[motor]);
               }
             }
             i++;

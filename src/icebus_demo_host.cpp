@@ -16,6 +16,7 @@ int main(int argc, char *argv[]) {
   ros::Time t0=ros::Time::now();
   while(true){
     for(auto &m:icebus.motor_config->motor){
+      ROS_INFO_THROTTLE(100,"Sending status request to motor %d with bus_id %d.", m.first, m.second->bus_id);
       icebus.SendStatusRequest(m.second->bus_id);
       icebus.Listen(m.second->bus_id);
     }

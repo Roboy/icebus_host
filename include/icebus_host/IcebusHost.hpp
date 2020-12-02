@@ -184,15 +184,24 @@ union M3Command{
       uint8_t data[11];
   };
 
+
   union M3ControlMode{
     struct __attribute__((packed)) {
           uint32_t header;
           uint8_t id;
           uint8_t control_mode;
+          uint32_t setpoint;
+          uint32_t Kp;
+          uint32_t Ki;
+          uint32_t Kd;
+          uint32_t deadband;
+          uint32_t IntegralLimit;
+          uint32_t PWMLimit;
           uint16_t crc;
       }values = {.header = 0x0DD0FECA };
-      uint8_t data[8];
+      uint8_t data[36];
   };
+
 
   union M3StatusResponse{
     struct __attribute__((packed)) {
@@ -224,7 +233,7 @@ public:
   void SendHandStatusRequest(int id);
   void SendHandStatusResponse(int id);
   void SendM3Command(int id, int32_t setpoint);
-  void SendM3ControlMode(int id, uint8_t control_mode);
+  void SendM3ControlMode(int id, uint8_t control_mode, int32_t setpoint);
   void Listen(int id);
   /**
    * Publishes information about motors
